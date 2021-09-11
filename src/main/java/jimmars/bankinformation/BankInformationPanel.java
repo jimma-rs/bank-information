@@ -28,12 +28,15 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -41,6 +44,7 @@ import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.DynamicGridLayout;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.util.QuantityFormatter;
 
@@ -62,9 +66,15 @@ class BankInformationPanel extends PluginPanel
 	private BankInformationPlugin plugin;
 
 	private String filterString = "";
+
 	private List<CachedItem> cachedItems = new ArrayList<>();
-	private JLabel bankValueLabel;
+	private List<String> bankTags = new ArrayList<>();
+
+	private JLabel bankValueAmountLabel;
+	private JLabel filteredValueAmountLabel;
 	private final JPanel totalValuePanel;
+	private final JPanel filteredValuePanel;
+	final JComboBox<String> bankTagsComboBox = new JComboBox<String>();
 
 	BankInformationPanel(BankInformationPlugin plugin)
 	{
@@ -79,9 +89,13 @@ class BankInformationPanel extends PluginPanel
 
 		totalValuePanel = buildTotalValueBox();
 		updateBankTotal();
+		filteredValuePanel = buildFilteredValueBox();
+		updateFilterTotal();
 
 		add(totalValuePanel);
-		add(buildFilterBox());
+		add(filteredValuePanel);
+		add(buildFilterByNameBox());
+		add(buildFilterByTagBox());
 		add(headerContainer);
 		add(listContainer);
 	}
@@ -116,18 +130,31 @@ class BankInformationPanel extends PluginPanel
 		listContainer.repaint();
 	}
 
+	List<CachedItem> getFilteredValues()
+	{
+		List<CachedItem> filteredValues = new ArrayList<>();
+
+		for (CachedItem item : cachedItems)
+		{
+			String selectedTag = String.valueOf(bankTagsComboBox.getSelectedItem());
+			boolean tagFilter = selectedTag.equals("") || item.getTags().contains(String.valueOf(bankTagsComboBox.getSelectedItem()));
+			if (tagFilter && item.getName().toLowerCase().contains(filterString.toLowerCase()))
+			{
+				filteredValues.add(item);
+			}
+		}
+		return filteredValues;
+	}
+
 	void populate()
 	{
 		rows.clear();
 
+		List<CachedItem> cachedItems = getFilteredValues();
+
 		for (int i = 0; i < cachedItems.size(); i++)
 		{
-			CachedItem item = cachedItems.get(i);
-
-			if (item.getName().toLowerCase().contains(filterString.toLowerCase()))
-			{
-				rows.add(buildRow(item, i % 2 == 0));
-			}
+			rows.add(buildRow(cachedItems.get(i), i % 2 == 0));
 		}
 
 		updateList();
@@ -137,6 +164,18 @@ class BankInformationPanel extends PluginPanel
 	{
 		this.cachedItems = items;
 		updateBankTotal();
+		updateFilterTotal();
+	}
+
+	public void setTags(List<String> bankTags)
+	{
+		this.bankTags = bankTags;
+
+		String currentSelectedItem = String.valueOf(bankTagsComboBox.getSelectedItem());
+		bankTagsComboBox.removeAllItems();
+		bankTagsComboBox.addItem("");
+		bankTags.forEach(bankTagsComboBox::addItem);
+		bankTagsComboBox.getModel().setSelectedItem(!currentSelectedItem.equals("null") ? currentSelectedItem : "");
 	}
 
 	private void orderBy(SortOrder order)
@@ -229,41 +268,71 @@ class BankInformationPanel extends PluginPanel
 		return header;
 	}
 
-	private JPanel buildTotalValueBox() {
+	private JPanel buildTotalValueBox()
+	{
 		BorderLayout layout = new BorderLayout(1, 1);
 		JPanel totalValuePanel = new JPanel(layout);
 		totalValuePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+		JLabel bankValueLabel = new JLabel("Total Value: ");
+		bankValueAmountLabel = new JLabel("Not loaded");
 
-		bankValueLabel = new JLabel("Bank information: Not loaded");
+		bankValueAmountLabel.setFont(FontManager.getRunescapeBoldFont());
 		totalValuePanel.add(bankValueLabel, BorderLayout.LINE_START);
+		totalValuePanel.add(bankValueAmountLabel, BorderLayout.CENTER);
 
 		return totalValuePanel;
 	}
 
-	private void updateBankTotal() {
-		int value = cachedItems.stream().map(item -> item.getValue() * item.getQuantity()).mapToInt(Integer::intValue).sum();
+	private JPanel buildFilteredValueBox()
+	{
+		BorderLayout layout = new BorderLayout(1, 1);
+		JPanel totalValuePanel = new JPanel(layout);
+		totalValuePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+		JLabel bankValueLabel = new JLabel("Filtered Value: ");
+		filteredValueAmountLabel = new JLabel("Not loaded");
 
-		String valueString = value > 0 ? QuantityFormatter.quantityToStackSize(value) : "Not loaded";
-		bankValueLabel.setText(String.format("Bank Information: %s", valueString));
+		filteredValueAmountLabel.setFont(FontManager.getRunescapeBoldFont());
+		totalValuePanel.add(bankValueLabel, BorderLayout.LINE_START);
+		totalValuePanel.add(filteredValueAmountLabel, BorderLayout.CENTER);
+
+		return totalValuePanel;
+	}
+
+	private void updateBankTotal()
+	{
+		int totalValue = cachedItems.stream().map(item -> item.getValue() * item.getQuantity()).mapToInt(Integer::intValue).sum();
+
+		String totalValueString = totalValue > 0 ? QuantityFormatter.quantityToStackSize(totalValue) : "Not loaded";
+		bankValueAmountLabel.setText(totalValueString);
 		totalValuePanel.repaint();
 	}
 
-	private JPanel buildFilterBox()
+	private void updateFilterTotal()
+	{
+		int filteredValue = getFilteredValues().stream().map(item -> item.getValue() * item.getQuantity()).mapToInt(Integer::intValue).sum();
+		String filteredValueString = filteredValue > 0 ? QuantityFormatter.quantityToStackSize(filteredValue) : "Not loaded";
+		filteredValueAmountLabel.setText(filteredValueString);
+		filteredValuePanel.repaint();
+	}
+
+	private JPanel buildFilterByNameBox()
 	{
 		BorderLayout layout = new BorderLayout(1, 1);
 		JPanel filterPanel = new JPanel(layout);
 		filterPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-		final JLabel uiLabel = new JLabel("Filter: ");
-		final JTextField uiInput = new JTextField();
+		final JLabel filterByNameLabel = new JLabel("Filter by name: ");
 
-		uiInput.addKeyListener(new java.awt.event.KeyListener()
+		final JTextField filterByNameInput = new JTextField();
+
+		filterByNameInput.addKeyListener(new java.awt.event.KeyListener()
 		{
 			@Override
 			public void keyTyped(KeyEvent e)
 			{
-				filterString = uiInput.getText();
+				filterString = filterByNameInput.getText();
 				populate();
+				updateFilterTotal();
 			}
 
 			@Override
@@ -277,8 +346,28 @@ class BankInformationPanel extends PluginPanel
 			}
 		});
 
-		filterPanel.add(uiLabel, BorderLayout.LINE_START);
-		filterPanel.add(uiInput, BorderLayout.CENTER);
+		filterPanel.add(filterByNameLabel, BorderLayout.LINE_START);
+		filterPanel.add(filterByNameInput, BorderLayout.CENTER);
+
+		return filterPanel;
+	}
+
+	private JPanel buildFilterByTagBox()
+	{
+		BorderLayout layout = new BorderLayout(1, 1);
+		JPanel filterPanel = new JPanel(layout);
+		filterPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+		final JLabel filterByTagLabel = new JLabel("Filter by tag: ");
+
+		bankTags.forEach(bankTagsComboBox::addItem);
+		bankTagsComboBox.addActionListener(e -> {
+			populate();
+			updateFilterTotal();
+		});
+
+		filterPanel.add(filterByTagLabel, BorderLayout.LINE_START);
+		filterPanel.add(bankTagsComboBox, BorderLayout.CENTER);
 
 		return filterPanel;
 	}
@@ -292,6 +381,7 @@ class BankInformationPanel extends PluginPanel
 		row.setBackground(stripe ? ODD_ROW : ColorScheme.DARK_GRAY_COLOR);
 		return row;
 	}
+
 
 	/**
 	 * Enumerates the multiple ordering options for the bank list.
